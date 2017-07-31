@@ -67,20 +67,22 @@ static void read_galaxy_catalog()
 
 static void populate_global_arrays_from_galaxy_catalog()
 {
-	const Scalar cutoff_radius = 0.5;
+	const Scalar inner_cutoff_radius2 = 0.5*0.5;
+	const Scalar outer_cutoff_radius2 = 2.5*2.5;
 	int num_valid_galaxies = 0;
 	int n;
 	for(n = 0;n < num_galaxies; n++) {
 		Scalar x = gal_catalog[n].x;
 		Scalar y = gal_catalog[n].y;
-		if(sqrt((x*x)+(y*y))>=cutoff_radius) {
+		Scalar d2 = (x*x)+(y*y);
+		if(d2>=inner_cutoff_radius2 && d2<=outer_cutoff_radius2) {
 			num_valid_galaxies++;
 		} else {
 			gal_catalog[n].x=NAN;
 			gal_catalog[n].y=NAN;
 		}
 	}
-	mpi_log(nullptr, "Filtered out %d/%d galaxies within %g Mpc", num_galaxies-num_valid_galaxies, num_galaxies, cutoff_radius);
+	mpi_log(nullptr, "Filtered out %d/%d galaxies inside %g Mpc or outside %g Mpc", num_galaxies-num_valid_galaxies, num_galaxies, sqrt(inner_cutoff_radius2), sqrt(outer_cutoff_radius2));
 	calculated_kappas.reset(new ScalarArray1Dobj(num_valid_galaxies));
 	calculated_gamma1s.reset(new ScalarArray1Dobj(num_valid_galaxies));
 	calculated_gamma2s.reset(new ScalarArray1Dobj(num_valid_galaxies));
@@ -107,8 +109,9 @@ static void populate_global_arrays_from_galaxy_catalog()
 	eps = gal_eps->v;
 	p_sigmaC = gal_sigmaC->v;
 	for(n = 0;n < num_galaxies;n++) {
-		if(sqrt(xy->x*xy->x+xy->y*xy->y)<cutoff_radius) {
-			mpi_log(nullptr, "Found galaxy %d/%d inside cutoff radius after filtering! x=%g, y=%g, eps=(%g,%g) sigmaC=%g",n+1,num_galaxies,xy->x,xy->y,eps->x,eps->y,*p_sigmaC);
+		Scalar d2 = xy->x*xy->x + xy->y*xy->y;
+		if(d2<inner_cutoff_radius2 || d2>outer_cutoff_radius2) {
+			mpi_log(nullptr, "Found galaxy %d/%d at excluded radius after filtering! x=%g, y=%g, eps=(%g,%g) sigmaC=%g",n+1,num_galaxies,xy->x,xy->y,eps->x,eps->y,*p_sigmaC);
 		}
 		xy++;
 		eps++;
@@ -175,7 +178,9 @@ void triaxUTD_setup()
 	populate_global_arrays_from_galaxy_catalog();
 }
 
-double triaxUTD_lnlikelihood(double c, double r200, double a, double b, double phi, double theta)
+// a_b = a/b
+// sin_theta = sin(theta)
+double triaxUTD_lnlikelihood(double c, double r200, double a_b, double b, double phi, double sintheta)
 {
 /*
 	static int count = 0;
@@ -184,8 +189,11 @@ double triaxUTD_lnlikelihood(double c, double r200, double a, double b, double p
 		mpi_log(nullptr, "triaxUTD_lnlikelihood called with c=%f r200=%f a=%f b=%f phi=%f theta=%f\n", c, r200, a, b, phi, theta);
 	}*/
 
-	if(a>b) return /*-INFINITY*/1.0E30;
-	nfwModel.setParameters(c, r200, NAN, a, b, theta, phi, zl, Dl, rhoC);
+	Scalar a = a_b * b;
+	// The following condition should not happen since a_b <= 1.
+	if(a>b) throw_line("Parameter a > b is invalid!");
+//	if(a>b) return /*-INFINITY*/1.0E30;
+	nfwModel.setParameters(c, r200, NAN, a, b, sintheta, phi, zl, Dl, rhoC);
 	nfwModel.calcConvergenceShear(gal_xy, gal_sigmaC, calculated_kappas, calculated_gamma1s, calculated_gamma2s);
 
 	Scalar lnlk = 0.0;
