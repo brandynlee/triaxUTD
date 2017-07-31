@@ -1,9 +1,9 @@
 CC = mpicc
 FC = mpif90
-AR = ar
+AR = xiar
 TARGET = triaxUTD.a
 
-CFLAGS = -std=c++11
+CFLAGS = -std=c++11 -ipo -O3 -no-prec-div -xHost
 FFLAGS =
 INC = -I$(TACC_GSL_INC) -I$(TACC_GSL_INC)/inc
 C_SRCS = $(wildcard *.cpp)
