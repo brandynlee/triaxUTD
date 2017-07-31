@@ -7,12 +7,12 @@ public:
 	~triaxNFW();
 
 	// Either r200 or M200 may be NAN but not both.
-	void setParameters(Scalar c, Scalar r200, Scalar M200, Scalar a, Scalar b, Scalar theta, Scalar phi, Scalar z,  Scalar Dl, Scalar rhoC);
+	void setParameters(Scalar c, Scalar r200, Scalar M200, Scalar a, Scalar b, Scalar sin_theta, Scalar phi, Scalar z,  Scalar Dl, Scalar rhoC);
 
 	void calcConvergenceShear(Vector2Array1DRef coord_list, ScalarArray1DRef sourceSigmaC_list, ScalarArray1DRef kappa_out, ScalarArray1DRef gamma1_out, ScalarArray1DRef gamma2_out);
 
 protected:
-	Scalar a, b, theta, phi;
+	Scalar a, b, sin_theta, phi;
 	Scalar f, A, B, C;
 	Scalar inv_sqrt_f; // 1/sqrt(f)
 	Scalar q, qX, qY;

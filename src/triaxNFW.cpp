@@ -25,7 +25,7 @@ struct IntegrandInfo {
 	IntegralType integral_type;
 	int gsl_errno;
 	Scalar x2, y2, q2, r200, c, sourceSigmaC;
-	Scalar a, b, theta, phi, z, Dl, rhoC;
+	Scalar a, b, sin_theta, phi, z, Dl, rhoC;
 	Scalar f, A, B, C, qX, qY;
 	std::vector<Vector2> integrand_values;
 };
@@ -77,7 +77,7 @@ static void log_integrand_values(int gsl_errno, IntegrandInfo* info)
 	mpi_log(lf, "Log of %s integral", integral_name);
 	mpi_log(lf, "GSL errno %d (%s)", info->gsl_errno, gsl_strerror(info->gsl_errno));
 	mpi_log(lf, "x2=%g y2=%g q2=%g r200=%g c=%g sourceSigmaC=%g", info->x2, info->y2, info->q2, info->r200, info->c, info->sourceSigmaC);
-	mpi_log(lf, "a=%g b=%g theta=%g phi=%g z=%g Dl=%g rhoC=%g", info->a, info->b, info->theta, info->phi, info->z, info->Dl, info->rhoC);
+	mpi_log(lf, "a=%g b=%g sin_theta=%g phi=%g z=%g Dl=%g rhoC=%g", info->a, info->b, info->sin_theta, info->phi, info->z, info->Dl, info->rhoC);
 	mpi_log(lf, "f=%g A=%g B=%g C=%g qX=%g qY=%g", info->f, info->A, info->B, info->C, info->qX, info->qY);
 	mpi_log(lf, "%d integrand values follow. Format is: u, integrand(u)", (int)info->integrand_values.size());
 	for(const auto& value : info->integrand_values) {
@@ -167,11 +167,22 @@ static inline Scalar calc_derivative(const gsl_function* f, Scalar x, Scalar wid
 	return derivative;
 }
 
-// This is what scipy was doing internally (when a and b are finite)
+// Integrate using GSL's QAG
 // a and b should be finite
-static inline Scalar quad_integrate(const gsl_function* f, double a, double b, gsl_integration_workspace* w)
+static inline Scalar quad_integrate_qag(const gsl_function* f, double a, double b, gsl_integration_workspace* w)
 {
-	Scalar result, abserr;
+	double result, abserr;
+	size_t neval;
+	gsl_integration_qag(f, a, b, 0, 1e-5, 500, 6, w, &result, &abserr);
+//	gsl_integration_qag(f, a, b, 0, 1e-5, 500, 1, w, &result, &abserr);
+	return result;
+}
+
+// Integrate using GSL's QAGS
+// a and b should be finite
+static inline Scalar quad_integrate_qags(const gsl_function* f, double a, double b, gsl_integration_workspace* w)
+{
+	double result, abserr;
 	size_t neval;
 	gsl_integration_qags(f, a, b, 0, 1e-5, 500, w, &result, &abserr);
 	return result;
@@ -215,19 +226,22 @@ static inline Scalar simpson_integrate(const gsl_function* f, Scalar from, Scala
 	return result;
 }
 
-static inline void calc_fABC(Scalar theta, Scalar phi, Scalar a, Scalar b, Scalar& f, Scalar& A, Scalar& B, Scalar& C) // c = 1
+static inline void calc_fABC(Scalar sin_theta, Scalar phi, Scalar a, Scalar b, Scalar& f, Scalar& A, Scalar& B, Scalar& C) // c = 1
 {
-	Scalar sin_theta = sin(theta);
-	Scalar cos_theta = cos(theta);
 	Scalar sin_phi = sin(phi);
 	Scalar cos_phi = cos(phi);
-	Scalar sin2_theta = sin_theta*sin_theta;
-	Scalar cos2_theta = cos_theta*cos_theta;
 	Scalar sin2_phi = sin_phi*sin_phi;
 	Scalar cos2_phi = cos_phi*cos_phi;
+
+	Scalar sin2_theta = sin_theta*sin_theta;
+	Scalar cos2_theta = 1.0-sin2_theta;
+	Scalar cos_theta = sqrt(cos2_theta);
+
 	Scalar sin_2phi = sin(2*phi);
+
 	Scalar inv_a2 = 1.0/(a*a);
 	Scalar inv_b2 = 1.0/(b*b);
+
 	f = sin2_theta*(cos2_phi*inv_a2 + sin2_phi*inv_b2) + cos2_theta;
 	A = cos2_theta*(sin2_phi*inv_a2 + cos2_phi*inv_b2) + sin2_theta*inv_a2*inv_b2;
 	B = cos_theta*sin_2phi*(inv_a2-inv_b2);
@@ -242,14 +256,14 @@ static inline void calc_qX2_qY2(Scalar f, Scalar A, Scalar B, Scalar C, Scalar& 
 	qY2 = 2*f/(a+b);
 }
 
-void triaxNFW::setParameters(Scalar c, Scalar r200, Scalar M200, Scalar a, Scalar b, Scalar theta, Scalar phi, Scalar z, Scalar Dl, Scalar rhoC)
+void triaxNFW::setParameters(Scalar c, Scalar r200, Scalar M200, Scalar a, Scalar b, Scalar sin_theta, Scalar phi, Scalar z, Scalar Dl, Scalar rhoC)
 {
 	sphNFW::setParameters(c, r200, M200, z, Dl, rhoC);
 	this->a = a;
 	this->b = b;
-	this->theta = theta;
+	this->sin_theta = sin_theta;
 	this->phi = phi;
-	calc_fABC(theta, phi, a, b, f, A, B, C);
+	calc_fABC(sin_theta, phi, a, b, f, A, B, C);
 	inv_sqrt_f = 1/sqrt(f);
 	calc_qX2_qY2(f, A, B, C, qX2, qY2);
 	qX = sqrt(qX2);
@@ -378,7 +392,7 @@ inline void triaxNFW::calcJKintegrals(Scalar x2, Scalar y2, Scalar sourceSigmaC,
 	params.integrand_info.qY = qY;
 	params.integrand_info.a = a;
 	params.integrand_info.b = b;
-	params.integrand_info.theta = theta;
+	params.integrand_info.sin_theta = sin_theta;
 	params.integrand_info.phi = phi;
 	params.integrand_info.z = z;
 	params.integrand_info.Dl = Dl;
@@ -398,7 +412,9 @@ inline void triaxNFW::calcJKintegrals(Scalar x2, Scalar y2, Scalar sourceSigmaC,
 	reset_integrandinfo(params.integrand_info, IntegralJ0);
 	integrand.function = reinterpret_cast<integrand_fn>(&triaxNFW::J0_integrand);
 	begin_catch_gsl_errors("J0", 0, integral_error_handler, &params.integrand_info);
-	J0 = quad_integrate(&integrand, 0, 1, wksp) * inv_sqrt_f;
+//	J0 = quad_integrate_qag(&integrand, 1e-9, 1, wksp) * inv_sqrt_f;
+	J0 = quad_integrate_qags(&integrand, 0, 1, wksp) * inv_sqrt_f;
+//	J0 = simpson_integrate(&integrand, 1e-9, 1, 1./10) * inv_sqrt_f;
 	end_catch_gsl_errors();
 	save_successful_integral_info(params.integrand_info);
 	END_PERF_PROF(J0);
@@ -408,7 +424,9 @@ inline void triaxNFW::calcJKintegrals(Scalar x2, Scalar y2, Scalar sourceSigmaC,
 	reset_integrandinfo(params.integrand_info, IntegralJ1);
 	integrand.function = reinterpret_cast<integrand_fn>(&triaxNFW::J1_integrand);
 	begin_catch_gsl_errors("J1", 0, integral_error_handler, &params.integrand_info);
-	J1 = quad_integrate(&integrand, 0, 1, wksp) * inv_sqrt_f;
+//	J1 = quad_integrate_qag(&integrand, 1e-9, 1, wksp) * inv_sqrt_f;
+	J1 = quad_integrate_qags(&integrand, 0, 1, wksp) * inv_sqrt_f;
+//	J1 = simpson_integrate(&integrand, 1e-9, 1, 1./10) * inv_sqrt_f;
 	end_catch_gsl_errors();
 	save_successful_integral_info(params.integrand_info);
 	END_PERF_PROF(J1);
@@ -418,8 +436,8 @@ inline void triaxNFW::calcJKintegrals(Scalar x2, Scalar y2, Scalar sourceSigmaC,
 	reset_integrandinfo(params.integrand_info, IntegralK0);
 	integrand.function = reinterpret_cast<integrand_fn>(&triaxNFW::K0_integrand);
 	begin_catch_gsl_errors("K0", 0, integral_error_handler, &params.integrand_info);
-//	K0 = quad_integrate(&integrand, 0, 1, wksp) * inv_sqrt_f;
-	K0 = simpson_integrate(&integrand, 1e-3, 1, 1./10) * inv_sqrt_f;
+//	K0 = quad_integrate(&integrand, 1e-9, 1, wksp) * inv_sqrt_f;
+	K0 = simpson_integrate(&integrand, 1e-9, 1, 1./10) * inv_sqrt_f;
 	end_catch_gsl_errors();
 	save_successful_integral_info(params.integrand_info);
 	END_PERF_PROF(K0);
@@ -429,8 +447,8 @@ inline void triaxNFW::calcJKintegrals(Scalar x2, Scalar y2, Scalar sourceSigmaC,
 	reset_integrandinfo(params.integrand_info, IntegralK1);
 	integrand.function = reinterpret_cast<integrand_fn>(&triaxNFW::K1_integrand);
 	begin_catch_gsl_errors("K1", 0, integral_error_handler, &params.integrand_info);
-//	K1 = quad_integrate(&integrand, 0, 1, wksp) * inv_sqrt_f;
-	K1 = simpson_integrate(&integrand, 1e-3, 1, 1./10) * inv_sqrt_f;
+//	K1 = quad_integrate(&integrand, 1e-9, 1, wksp) * inv_sqrt_f;
+	K1 = simpson_integrate(&integrand, 1e-9, 1, 1./10) * inv_sqrt_f;
 	end_catch_gsl_errors();
 	save_successful_integral_info(params.integrand_info);
 	END_PERF_PROF(K1);
@@ -440,8 +458,8 @@ inline void triaxNFW::calcJKintegrals(Scalar x2, Scalar y2, Scalar sourceSigmaC,
 	reset_integrandinfo(params.integrand_info, IntegralK2);
 	integrand.function = reinterpret_cast<integrand_fn>(&triaxNFW::K2_integrand);
 	begin_catch_gsl_errors("K2", 0, integral_error_handler, &params.integrand_info);
-//	K2 = quad_integrate(&integrand, 0, 1, wksp) * inv_sqrt_f;
-	K2 = simpson_integrate(&integrand, 1e-3, 1, 1./10) * inv_sqrt_f;
+//	K2 = quad_integrate(&integrand, 1e-9, 1, wksp) * inv_sqrt_f;
+	K2 = simpson_integrate(&integrand, 1e-9, 1, 1./10) * inv_sqrt_f;
 	end_catch_gsl_errors();
 	save_successful_integral_info(params.integrand_info);
 	END_PERF_PROF(K2);
