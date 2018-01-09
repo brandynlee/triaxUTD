@@ -193,6 +193,8 @@ double triaxUTD_lnlikelihood(double c, double r200, double a_b, double b, double
 	// The following condition should not happen since a_b <= 1.
 	if(a>b) throw_line("Parameter a > b is invalid!");
 //	if(a>b) return /*-INFINITY*/1.0E30;
+	if(a<=0.3 || b<=0.3) return 1.0E30;
+
 	nfwModel.setParameters(c, r200, NAN, a, b, sintheta, phi, zl, Dl, rhoC);
 	nfwModel.calcConvergenceShear(gal_xy, gal_sigmaC, calculated_kappas, calculated_gamma1s, calculated_gamma2s);
 
