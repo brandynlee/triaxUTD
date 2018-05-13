@@ -513,17 +513,17 @@ void triaxNFW::calcConvergenceShear(Vector2Array1DRef coord_list, ScalarArray1DR
 	Scalar* p_gamma1_out = gamma1_out->v;
 	Scalar* p_gamma2_out = gamma2_out->v;
 
-	Scalar sin_2psi = sin(2*psi);
-	Scalar cos_2psi = cos(2*psi);
+	Scalar sin_psi = sin(psi);
+	Scalar cos_psi = cos(psi);
 
 	int n;
 	for (n = 0; n < num_coords; n++, v++, p_sourceSigmaC++, p_kappa_out++, p_gamma1_out++, p_gamma2_out++) {
 		Scalar x = v->x/qX;
 		Scalar y = v->y/qX;
 
-		// transform x and y to intermediate coordinate system by rotating through -2*psi
-		Scalar xi = x*cos_2psi + y*sin_2psi;
-		Scalar yi = -x*sin_2psi + y*cos_2psi;
+		// transform x and y to intermediate coordinate system by rotating through -psi
+		Scalar xi = x*cos_psi + y*sin_psi;
+		Scalar yi = -x*sin_psi + y*cos_psi;
 
 		Scalar kappa, gamma1_intermediate, gamma2_intermediate;
 		START_PERF_PROF(calcIntermediateConvergenceShear);
@@ -532,9 +532,16 @@ void triaxNFW::calcConvergenceShear(Vector2Array1DRef coord_list, ScalarArray1DR
 		ACCUM_PERF_PROF_DURATION(calcIntermediateConvergenceShear, calcIntermediateConvergenceShear);
 
 		Scalar gamma1, gamma2;
+		// transform gamma out of the intermediate coordinate system
+		Scalar gamma_mag = sqrt(gamma1_intermediate*gamma1_intermediate+gamma2_intermediate*gamma2_intermediate);
+		Scalar gamma_alpha = atan2(gamma2_intermediate, gamma1_intermediate)/2.0;
+		gamma1 = gamma_mag * cos(2*(gamma_alpha+psi));
+		gamma2 = gamma_mag * sin(2*(gamma_alpha+psi));
 		// transform gamma out of the intermediate coordinate system by rotating through 2*psi
+		/*
 		gamma1 = gamma1_intermediate*cos_2psi - gamma2_intermediate*sin_2psi;
 		gamma2 = gamma1_intermediate*sin_2psi + gamma2_intermediate*cos_2psi;
+		*/
 		
 		*p_kappa_out=kappa;
 		*p_gamma1_out=gamma1;
