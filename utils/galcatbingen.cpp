@@ -1,13 +1,17 @@
 #include <iostream>
 #include <fstream>
+#include <cmath>
 #include "../src/mcmc.h" // for CatalogEntry
 
 using namespace std;
 
 int main(int argc, char* argv[])
 {
+	double zs, Ds;
+	zs = NAN;
+	Ds = NAN;
 	if (argc < 3) {
-		cerr << "Usage: " << argv[0] << " [catalog file (text)] [output binary catalog file (bin)]" << endl;
+		cerr << "Usage: " << argv[0] << " [catalog file (text)] [output binary catalog file (bin)] [zs (optional)] [Ds (optional)]" << endl;
 		return -1;
 	}
 
@@ -23,11 +27,20 @@ int main(int argc, char* argv[])
 		return -3;
 	}
 
+	if (argc >= 3) {
+		sscanf(argv[3], "%lf", &zs);
+	}
+	if (argc >= 4) {
+		sscanf(argv[4], "%lf", &Ds);
+	}
+
 	string line;
 	CatalogEntry entry;
 	while (!infile.eof()) {
 		getline(infile, line);
 		sscanf(line.c_str(), "%lf %lf %lf %lf %lf %lf", &entry.x, &entry.y, &entry.eps1, &entry.eps2, &entry.zs, &entry.Ds);
+		if(!isnan(zs)) entry.zs=zs;
+		if(!isnan(Ds)) entry.Ds=Ds;
 		outfile.write((const char*)&entry, sizeof(CatalogEntry));
 	}
 
